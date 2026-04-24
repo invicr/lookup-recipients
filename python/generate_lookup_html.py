@@ -21,6 +21,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent
 DEFAULT_SOURCE_XLSX = PROJECT_ROOT / "dummy_1800.xlsx"
 DEFAULT_OUTPUT_HTML = PROJECT_ROOT / "html" / "lookup.html"
+DEFAULT_OUTPUT_DATA = PROJECT_ROOT / "html" / "lookup-data.json"
 PBKDF2_ITERATIONS = 30_000
 
 
@@ -389,11 +390,12 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     </section>
   </main>
 
-  <script id="lookup-data" type="application/json">{data_json}</script>
   <script>
     const LOOKUP_CONFIG = {{
       iterations: {iterations},
-      records: JSON.parse(document.getElementById("lookup-data").textContent)
+      dataUrl: {data_url_json},
+      records: null,
+      loadPromise: null
     }};
 
     const form = document.getElementById("lookup-form");
@@ -403,6 +405,34 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     const resultNode = document.getElementById("result");
     const resultGrid = document.getElementById("result-grid");
     const resultSubtitle = document.getElementById("result-subtitle");
+
+    async function loadRecords() {{
+      if (LOOKUP_CONFIG.records) {{
+        return LOOKUP_CONFIG.records;
+      }}
+
+      if (!LOOKUP_CONFIG.loadPromise) {{
+        LOOKUP_CONFIG.loadPromise = fetch(LOOKUP_CONFIG.dataUrl, {{
+          cache: "no-cache"
+        }})
+          .then((response) => {{
+            if (!response.ok) {{
+              throw new Error("조회 데이터를 불러오지 못했습니다.");
+            }}
+            return response.json();
+          }})
+          .then((records) => {{
+            LOOKUP_CONFIG.records = records;
+            return records;
+          }})
+          .catch((error) => {{
+            LOOKUP_CONFIG.loadPromise = null;
+            throw error;
+          }});
+      }}
+
+      return LOOKUP_CONFIG.loadPromise;
+    }}
 
     function normalizeId(value) {{
       return value.trim().toLowerCase();
@@ -521,7 +551,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       }}
 
       const lookupKey = await lookupToken(`lookup:${{normalizedId}}`);
-      const record = LOOKUP_CONFIG.records[lookupKey];
+      const records = await loadRecords();
+      const record = records[lookupKey];
       if (!record) {{
         throw new Error("일치하는 신청 정보가 없습니다.");
       }}
@@ -546,7 +577,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     form.addEventListener("submit", async (event) => {{
       event.preventDefault();
       clearResult();
-      setStatus("조회 중입니다...", "");
+      setStatus("조회 데이터를 준비하고 있습니다...", "");
       button.disabled = true;
 
       try {{
@@ -575,6 +606,8 @@ def has_value(value):
 
 def b64(data):
     return base64.b64encode(data).decode("ascii")
+
+
 def load_rows(source_path):
     workbook = load_workbook(source_path, data_only=True)
     worksheet = workbook[workbook.sheetnames[0]]
@@ -664,26 +697,33 @@ def build_encrypted_records(rows):
     return records
 
 
-def build_html(encrypted_records):
+def build_html(data_file_path):
     return HTML_TEMPLATE.format(
         title=escape("외부 AI 서비스 PoC 대상자 조회"),
         heading=escape("외부 AI 서비스 PoC 대상자 조회"),
         description=escape("본인 Knox ID로 대상자 여부 및 신청 상태를 조회해보세요."),
         iterations=PBKDF2_ITERATIONS,
-        data_json=json.dumps(encrypted_records, ensure_ascii=False, separators=(",", ":")),
+        data_url_json=json.dumps(data_file_path),
     )
 
 
 def main():
     source_path = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else DEFAULT_SOURCE_XLSX
     output_path = Path(sys.argv[2]).resolve() if len(sys.argv) > 2 else DEFAULT_OUTPUT_HTML
+    data_output_path = output_path.with_name(DEFAULT_OUTPUT_DATA.name)
     id_header, rows = load_rows(source_path)
     encrypted_records = build_encrypted_records(rows)
-    html = build_html(encrypted_records)
+    html = build_html(data_output_path.name)
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    data_output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(html, encoding="utf-8")
+    data_output_path.write_text(
+        json.dumps(encrypted_records, ensure_ascii=False, separators=(",", ":")),
+        encoding="utf-8",
+    )
     print(f"source: {source_path}")
     print(f"generated: {output_path}")
+    print(f"generated: {data_output_path}")
     print(f"records: {len(rows)}")
 
 
