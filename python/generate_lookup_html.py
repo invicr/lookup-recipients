@@ -118,8 +118,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       gap: 8px;
       padding: 8px 12px;
       border-radius: 999px;
-      background: rgba(19, 34, 56, 0.06);
-      color: var(--muted);
+      background: rgba(12, 107, 88, 0.08);
+      color: var(--accent);
       font-size: 13px;
       font-weight: 700;
       letter-spacing: 0.02em;
@@ -194,6 +194,13 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       transform: translateY(-1px);
     }}
 
+    button:focus-visible {{
+      outline: none;
+      box-shadow:
+        0 0 0 4px rgba(12, 107, 88, 0.14),
+        0 14px 28px rgba(12, 107, 88, 0.22);
+    }}
+
     button:disabled {{
       opacity: 0.7;
       cursor: wait;
@@ -207,14 +214,26 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     }}
 
     .status {{
-      min-height: 24px;
+      min-height: 0;
       margin: 18px 0 0;
+      padding: 0;
       font-size: 14px;
       font-weight: 700;
+      line-height: 1.6;
+      border-radius: 18px;
+      transition: all 180ms ease;
     }}
 
     .status.error {{
-      color: var(--danger);
+      padding: 18px 20px;
+      color: #8b3a2b;
+      background: linear-gradient(135deg, #fff7f5, #fceae5);
+      border: 1px solid rgba(180, 35, 24, 0.14);
+      box-shadow: 0 8px 20px rgba(180, 35, 24, 0.08);
+      font-size: 17px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      text-align: center;
     }}
 
     .status.ok {{
@@ -254,6 +273,39 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     .grid {{
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
+    }}
+
+    .info-note {{
+      margin-top: 18px;
+      padding: 18px 20px;
+      background: rgba(255, 255, 255, 0.6);
+      border: 1px solid rgba(19, 34, 56, 0.08);
+      border-radius: 18px;
+    }}
+
+    .info-note[hidden] {{
+      display: none;
+    }}
+
+    .info-note strong {{
+      display: block;
+      margin-bottom: 10px;
+      font-size: 14px;
+    }}
+
+    .info-note ul {{
+      margin: 0;
+      padding-left: 18px;
+    }}
+
+    .info-note li {{
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.5;
+    }}
+
+    .info-note li + li {{
+      margin-top: 6px;
     }}
 
     .cell {{
@@ -355,7 +407,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   <main class="shell">
     <section class="card">
       <header class="hero">
-        <div class="eyebrow">ID Lookup Only</div>
+        <div class="eyebrow">Knox ID 조회</div>
         <h1>{heading}</h1>
         <p class="intro">{description}</p>
       </header>
@@ -385,6 +437,14 @@ HTML_TEMPLATE = """<!DOCTYPE html>
           </div>
           <div id="result-grid" class="grid"></div>
         </section>
+        <section id="info-note" class="info-note" aria-label="안내사항" hidden>
+          <strong>※ 안내사항</strong>
+          <ul>
+            <li>신청 완료 후 계정은 익일 생성되며 방화벽 룰은 익일 오후 적용됩니다.(금요일에 신청 완료된 경우 차주 월요일 적용)</li>
+            <li>익일 이후에도 접속이 되지 않을 경우 Q&amp;A 게시판에 신청 차수를 남겨 주세요.</li>
+            <li>예) SingleID/방화벽 신청상태가 완료(1차-4/17)인 경우, 4/18 계정 생성 후 오후에 방화벽 룰이 적용됩니다.</li>
+          </ul>
+        </section>
       </div>
     </section>
   </main>
@@ -403,6 +463,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     const resultNode = document.getElementById("result");
     const resultGrid = document.getElementById("result-grid");
     const resultSubtitle = document.getElementById("result-subtitle");
+    const infoNoteNode = document.getElementById("info-note");
 
     function normalizeId(value) {{
       return value.trim().toLowerCase();
@@ -460,24 +521,21 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     function renderResult(payload) {{
       const entries = [
         {{
-          label: "보안서약서",
-          value: payload.a ? "등록" : "미등록",
+          label: "PoC 대상자 여부",
+          value: "대상",
+          tone: "registered"
+        }},
+        {{
+          label: "보안서약서 여부",
+          value: payload.a ? "완료" : "미완료",
           tone: payload.a ? "registered" : "missing"
         }},
         {{
-          label: "IP 정보",
-          value: payload.i || "미등록",
-          tone: payload.i ? "registered" : "missing"
+          label: "SingleID/방화벽 신청 상태",
+          value: payload.f ? `완료(${{payload.f}})` : "미완료",
+          tone: payload.f ? "registered" : "missing"
         }}
       ];
-
-      if (payload.a && payload.i) {{
-        entries.push({{
-          label: "방화벽 신청 상태",
-          value: payload.f ? `신청 완료 (${{payload.f}})` : "미신청",
-          tone: payload.f ? "complete" : "pending"
-        }});
-      }}
 
       resultGrid.replaceChildren();
       for (const entry of entries) {{
@@ -499,8 +557,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         resultGrid.appendChild(cell);
       }}
 
-      resultSubtitle.textContent = "입력한 아이디와 일치하는 정보입니다.";
+      resultSubtitle.textContent = "";
       resultNode.classList.add("visible");
+      infoNoteNode.hidden = false;
     }}
 
     function setStatus(message, type) {{
@@ -512,6 +571,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       resultGrid.replaceChildren();
       resultNode.classList.remove("visible");
       resultSubtitle.textContent = "";
+      infoNoteNode.hidden = true;
     }}
 
     async function findRecordById(rawId) {{
@@ -523,7 +583,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       const lookupKey = await lookupToken(`lookup:${{normalizedId}}`);
       const record = LOOKUP_CONFIG.records[lookupKey];
       if (!record) {{
-        throw new Error("일치하는 신청 정보가 없습니다.");
+        throw new Error("입력하신 정보는 외부 AI 서비스 PoC 대상자 명단에 없습니다.");
       }}
 
       const key = await deriveKey(normalizedId, b64ToBytes(record[0]));
@@ -552,7 +612,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       try {{
         const payload = await findRecordById(input.value);
         renderResult(payload);
-        setStatus("조회가 완료되었습니다.", "ok");
+        setStatus("", "");
       }} catch (error) {{
         setStatus(error.message, "error");
       }} finally {{
@@ -588,7 +648,7 @@ def load_rows(source_path):
 
     id_header = headers[0]
     header_map = {header: index for index, header in enumerate(headers)}
-    required_headers = ["보안서약서", "IP 정보", "방화벽 차수"]
+    required_headers = ["보안서약서", "방화벽 차수"]
     missing_headers = [header for header in required_headers if header not in header_map]
     if missing_headers:
         raise ValueError(f"필수 컬럼이 없습니다: {', '.join(missing_headers)}")
@@ -605,18 +665,15 @@ def load_rows(source_path):
 
         normalized = normalize_id(raw_id)
         agreement_value = row[header_map["보안서약서"]] if header_map["보안서약서"] < len(row) else None
-        ip_value = row[header_map["IP 정보"]] if header_map["IP 정보"] < len(row) else None
         firewall_round = row[header_map["방화벽 차수"]] if header_map["방화벽 차수"] < len(row) else None
 
         agreement_registered = bool(agreement_value)
-        ip_registered = has_value(ip_value)
         firewall_requested = has_value(firewall_round)
 
         result.append({
             "id_header": id_header,
             "normalized_id": normalized,
             "agreement_registered": agreement_registered,
-            "ip_value": str(ip_value) if ip_registered else "",
             "firewall_round": str(firewall_round) if firewall_requested else "",
         })
 
@@ -651,7 +708,6 @@ def build_encrypted_records(rows):
         payload = json.dumps(
             {
                 "a": 1 if row["agreement_registered"] else 0,
-                "i": row["ip_value"],
                 "f": row["firewall_round"],
             },
             ensure_ascii=False,
