@@ -270,9 +270,47 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       font-size: 14px;
     }}
 
+    .result-body {{
+      padding: 18px;
+      display: grid;
+      gap: 16px;
+    }}
+
+    .result-meta {{
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 14px 16px;
+      border-radius: 16px;
+      background: rgba(19, 34, 56, 0.04);
+      border: 1px solid rgba(19, 34, 56, 0.08);
+    }}
+
+    .result-meta-label {{
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
+    }}
+
+    .result-meta-value {{
+      display: inline-flex;
+      align-items: center;
+      min-height: 34px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      background: rgba(19, 34, 56, 0.08);
+      color: var(--text);
+      font-size: 14px;
+      font-weight: 800;
+    }}
+
     .grid {{
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
+      border: 1px solid rgba(19, 34, 56, 0.08);
+      border-radius: 18px;
+      overflow: hidden;
+      background: rgba(255, 255, 255, 0.92);
     }}
 
     .info-note {{
@@ -309,7 +347,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     }}
 
     .cell {{
-      padding: 16px 18px;
+      padding: 18px;
       border-right: 1px solid var(--line);
     }}
 
@@ -420,7 +458,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
               name="employee-id"
               type="text"
               autocomplete="username"
-              placeholder="사내 아이디를 입력하세요"
+              placeholder="Knox ID를 입력하세요"
               required
             />
             <button id="submit-button" type="submit">조회</button>
@@ -435,7 +473,13 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             <strong>조회 결과</strong>
             <span id="result-subtitle"></span>
           </div>
-          <div id="result-grid" class="grid"></div>
+          <div class="result-body">
+            <div class="result-meta">
+              <span class="result-meta-label">사용자그룹</span>
+              <span id="result-group" class="result-meta-value"></span>
+            </div>
+            <div id="result-grid" class="grid"></div>
+          </div>
         </section>
         <section id="info-note" class="info-note" aria-label="안내사항" hidden>
           <strong>※ 안내사항</strong>
@@ -462,6 +506,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     const statusNode = document.getElementById("status");
     const resultNode = document.getElementById("result");
     const resultGrid = document.getElementById("result-grid");
+    const resultGroup = document.getElementById("result-group");
     const resultSubtitle = document.getElementById("result-subtitle");
     const infoNoteNode = document.getElementById("info-note");
 
@@ -527,13 +572,13 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         }},
         {{
           label: "보안서약서 여부",
-          value: payload.a ? "완료" : "미완료",
-          tone: payload.a ? "registered" : "missing"
+          value: payload.g === "GeminiAX" ? "개별 징구" : (payload.a ? "완료" : "미완료"),
+          tone: payload.g === "GeminiAX" ? "pending" : (payload.a ? "registered" : "missing")
         }},
         {{
           label: "SingleID/방화벽 신청 상태",
-          value: payload.f ? `완료(${{payload.f}})` : "미완료",
-          tone: payload.f ? "registered" : "missing"
+          value: payload.g === "GeminiAX" ? "개별 신청" : (payload.f ? `완료(${{payload.f}})` : "미완료"),
+          tone: payload.g === "GeminiAX" ? "pending" : (payload.f ? "registered" : "missing")
         }}
       ];
 
@@ -557,6 +602,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         resultGrid.appendChild(cell);
       }}
 
+      resultGroup.textContent = payload.g || "-";
       resultSubtitle.textContent = "";
       resultNode.classList.add("visible");
       infoNoteNode.hidden = false;
@@ -569,6 +615,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
     function clearResult() {{
       resultGrid.replaceChildren();
+      resultGroup.textContent = "";
       resultNode.classList.remove("visible");
       resultSubtitle.textContent = "";
       infoNoteNode.hidden = true;
@@ -648,7 +695,7 @@ def load_rows(source_path):
 
     id_header = headers[0]
     header_map = {header: index for index, header in enumerate(headers)}
-    required_headers = ["보안서약서", "방화벽 차수"]
+    required_headers = ["보안서약서", "방화벽 차수", "사용자그룹"]
     missing_headers = [header for header in required_headers if header not in header_map]
     if missing_headers:
         raise ValueError(f"필수 컬럼이 없습니다: {', '.join(missing_headers)}")
@@ -666,6 +713,7 @@ def load_rows(source_path):
         normalized = normalize_id(raw_id)
         agreement_value = row[header_map["보안서약서"]] if header_map["보안서약서"] < len(row) else None
         firewall_round = row[header_map["방화벽 차수"]] if header_map["방화벽 차수"] < len(row) else None
+        user_group = row[header_map["사용자그룹"]] if header_map["사용자그룹"] < len(row) else None
 
         agreement_registered = bool(agreement_value)
         firewall_requested = has_value(firewall_round)
@@ -675,6 +723,7 @@ def load_rows(source_path):
             "normalized_id": normalized,
             "agreement_registered": agreement_registered,
             "firewall_round": str(firewall_round) if firewall_requested else "",
+            "user_group": str(user_group).strip() if has_value(user_group) else "",
         })
 
     return id_header, result
@@ -709,6 +758,7 @@ def build_encrypted_records(rows):
             {
                 "a": 1 if row["agreement_registered"] else 0,
                 "f": row["firewall_round"],
+                "g": row["user_group"],
             },
             ensure_ascii=False,
             separators=(",", ":"),
