@@ -572,13 +572,13 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         }},
         {{
           label: "보안서약서 여부",
-          value: payload.g === "GeminiAX" ? "개별 징구" : (payload.a ? "완료" : "미완료"),
-          tone: payload.g === "GeminiAX" ? "pending" : (payload.a ? "registered" : "missing")
+          value: payload.a,
+          tone: payload.at
         }},
         {{
           label: "SingleID/방화벽 신청 상태",
-          value: payload.g === "GeminiAX" ? "개별 신청" : (payload.f ? `완료(${{payload.f}})` : "미완료"),
-          tone: payload.g === "GeminiAX" ? "pending" : (payload.f ? "registered" : "missing")
+          value: payload.f,
+          tone: payload.ft
         }}
       ];
 
@@ -680,6 +680,10 @@ def has_value(value):
     return value not in (None, "")
 
 
+def normalize_text(value):
+    return str(value).strip() if value is not None else ""
+
+
 def b64(data):
     return base64.b64encode(data).decode("ascii")
 def load_rows(source_path):
@@ -715,15 +719,37 @@ def load_rows(source_path):
         firewall_round = row[header_map["방화벽 차수"]] if header_map["방화벽 차수"] < len(row) else None
         user_group = row[header_map["사용자그룹"]] if header_map["사용자그룹"] < len(row) else None
 
-        agreement_registered = bool(agreement_value)
-        firewall_requested = has_value(firewall_round)
+        agreement_text = normalize_text(agreement_value)
+        firewall_text = normalize_text(firewall_round)
+
+        if agreement_text == "개별 징구":
+            agreement_status = "개별 징구"
+            agreement_tone = "pending"
+        elif bool(agreement_value):
+            agreement_status = "완료"
+            agreement_tone = "registered"
+        else:
+            agreement_status = "미완료"
+            agreement_tone = "missing"
+
+        if firewall_text == "개별 신청":
+            firewall_status = "개별 신청"
+            firewall_tone = "pending"
+        elif firewall_text:
+            firewall_status = f"완료({firewall_text})"
+            firewall_tone = "registered"
+        else:
+            firewall_status = "미완료"
+            firewall_tone = "missing"
 
         result.append({
             "id_header": id_header,
             "normalized_id": normalized,
-            "agreement_registered": agreement_registered,
-            "firewall_round": str(firewall_round) if firewall_requested else "",
-            "user_group": str(user_group).strip() if has_value(user_group) else "",
+            "agreement_status": agreement_status,
+            "agreement_tone": agreement_tone,
+            "firewall_status": firewall_status,
+            "firewall_tone": firewall_tone,
+            "user_group": normalize_text(user_group),
         })
 
     return id_header, result
@@ -756,8 +782,10 @@ def build_encrypted_records(rows):
 
         payload = json.dumps(
             {
-                "a": 1 if row["agreement_registered"] else 0,
-                "f": row["firewall_round"],
+                "a": row["agreement_status"],
+                "at": row["agreement_tone"],
+                "f": row["firewall_status"],
+                "ft": row["firewall_tone"],
                 "g": row["user_group"],
             },
             ensure_ascii=False,
